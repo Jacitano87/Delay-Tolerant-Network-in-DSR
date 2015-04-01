@@ -57,7 +57,7 @@
 class DSRAgent;
 
 #include <stdarg.h>
-#include <stack>
+#include <queue>
 #include <object.h>
 #include <agent.h>
 #include <trace.h>
@@ -112,8 +112,10 @@ protected:
 
 class RecallMethod : public TimerHandler {
 public:
-	RecallMethod(DSRAgent *a) : TimerHandler() { }
+	RecallMethod(DSRAgent *a) : TimerHandler() {a_ = a;}
   void expire(Event *e);
+protected:
+  DSRAgent *a_;
 };
 
 
@@ -125,7 +127,7 @@ public:
 
   virtual int command(int argc, const char*const* argv);
   virtual void recv(Packet*, Handler* callback = 0);
-
+  
   void tap(const Packet *p);
   // tap out all data packets received at this host and promiscously snoop
   // them for interesting tidbits
@@ -151,6 +153,7 @@ private:
  int prova;
 int contatore;
  int random;
+ int libero;
   // will eventually need to handle multiple infs, but this is okay for
   // now 1/28/98 -dam
   ID net_id, MAC_id;		// our IP addr and MAC addr

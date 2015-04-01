@@ -65,7 +65,7 @@ extern "C" {
 #include <unistd.h>
 }
 
-#include <stack>
+#include <deque>
 #include <string>
 #include <object.h>
 #include <agent.h>
@@ -118,7 +118,7 @@ static const int min_adv_interval = 5;
 static const int default_flow_timeout = 60;
 //#define DSRFLOW_VERBOSE
 int array [100];
-stack<Packet*> pacchetti_da_reinviare;
+deque<Packet*> pacchetti_da_reinviare;
 static const int verbose = 0;
 static const int verbose_srr = 0;
 static const int verbose_ssalv = 1;
@@ -245,16 +245,35 @@ SendBufferTimer::expire(Event *)
 
 
 }
-
+//a_->handlePktWithoutSR(p,true);
+			//a_->handleForwarding(p);
+			//a_->sendOutBCastPkt(p);
 //Chiama il mio metodo timer che ogni 5 secondi invia i pacchetti
+
 
 void
 RecallMethod::expire(Event *) 
 { 
+    //Controllo che la Struttura dati coda non sia vuota
+   while (pacchetti_da_reinviare.size() > 0)
+	{
+	   //Creo un SRPacket effettuando un'estrazione in testa 	
+	
+  	   hdr_sr *srh = hdr_sr::access(pacchetti_da_reinviare.front());
+  	   hdr_ip *iph = hdr_ip::access(pacchetti_da_reinviare.front());
+  	   hdr_cmn *cmh = hdr_cmn::access(pacchetti_da_reinviare.front());
 
-  printf("Size = %i \n",pacchetti_da_reinviare.size());
+  	   SRPacket p(pacchetti_da_reinviare.front(), srh);
+ 	   printf("Size_Temp_Coda=%i - UID=%i - Route=%lu \n",pacchetti_da_reinviare.size(),cmh->uid(),p.route.dump()); 	
+	 // Richiamo il metodo sendOutPacketWithRoute (Poichè il pacchetto ha già la route) passando come parametro SRPacket
+	  a_->sendOutPacketWithRoute(p, true);
+		
+	 //Effettuo una Pop dalla Struttura dati Coda	
+	  pacchetti_da_reinviare.pop_front();
+		
+	}
 
-   
+// Richiama il metodo dopo un totale di secondi decisi
   resched(CHIAMA_RECALL + CHIAMA_RECALL * Random::uniform(1.0));
 
 
@@ -386,7 +405,7 @@ send_buf_timer(this),send_recall_timer(this), flow_table(), ars_table()
   route_request_num = 1;
   prova=0;
   random=0;
-   
+  libero=1; 
    
   route_cache = makeRouteCache();
 
@@ -519,7 +538,8 @@ DSRAgent::command(int argc, const char*const* argv)
 	  send_buf_timer.sched(BUFFER_CHECK 
 			       + BUFFER_CHECK * Random::uniform(1.0));	
           // SCHEDULA LA CHIAMATA AL METODO SEND RECALL TIMER	
-	 send_recall_timer.sched(CHIAMA_RECALL);  
+	 send_recall_timer.sched(CHIAMA_RECALL 
+			       + CHIAMA_RECALL * Random::uniform(3.0));  
           return route_cache->command(argc,argv);
 	}
     }
@@ -733,7 +753,7 @@ DSRAgent::handlePktWithoutSR(SRPacket& p, bool retry)
      this should be a retry if the packet is already in the sendbuffer */
 {
   assert(HDR_SR (p.pkt)->valid());
-
+ 
   if (p.dest == net_id)
     { // it doesn't need a source route, 'cause it's for us
       handlePacketReceipt(p);
@@ -2692,12 +2712,13 @@ DSRAgent::xmitFailed(Packet *pkt, const char* reason)
 
 SRPacket p(pkt, srh);
  arrayPacchetti[prova]=pkt;
-pacchetti_da_reinviare.push(pkt);
+
+
 
 //printf("PacketXmit: %i - Src= %lu - Dest= %lu - Route= %lu\n",cmh->uid(), arrayPacchetti[prova].src, arrayPacchetti[prova].dest, arrayPacchetti[prova].route.dump());
 	  prova++;
 //printf("C_Addr=%lu - n_Addr=%lu - numAddr=%lu n_hop=%lu \n",srh->cur_addr(),srh->get_next_addr(),srh->num_addrs(),cmh->next_hop());
-          //myFunction();
+          
 
   
   if (srh->route_error()) 
@@ -2740,6 +2761,10 @@ printf("Route Request (return) \n");
 	     (ID_Type) srh->addrs()[srh->cur_addr()].addr_type);
   assert(from_id == net_id || from_id == MAC_id);
 
+
+ 
+
+
   trace("SSendFailure %.9f _%s_ %d %d %d:%d %d:%d %s->%s %d %d %d %d %s",
 	Scheduler::instance().clock(), net_id.dump(), 
 	cmh->uid(), cmh->ptype(),
@@ -2771,6 +2796,47 @@ printf("Route Request (return) \n");
       return;
     }
 #endif
+    if (srh->num_route_errors() >= MAX_ROUTE_ERRORS)
+    { // no more room in the error packet to nest an additional error.
+      // this pkt's been bouncing around so much, let's just drop and let
+      // the originator retry
+      // Another possibility is to just strip off the outer error, and
+      // launch a Route discovey for the inner error XXX -dam 6/5/98
+
+
+      trace("SDFU  %.5f _%s_ dumping maximally nested error %s  %d -> %d",
+	    Scheduler::instance().clock(), net_id.dump(),
+	    tell_id.dump(),
+	    from_id.dump(),
+	    to_id.dump());
+      Packet::free(pkt);	// no drop needed
+      pkt = 0;
+      //printf("MAX_ROUTE_ERRORS (return)\n");
+      return;
+    }
+
+
+if (tell_id == net_id || tell_id == MAC_id)
+    {
+	//printf("no need to send the route error if it's for us (1) \n");
+    }
+	else 
+	{
+ 		if(cmh->uid() != 0 )
+		{
+			//Controllo che l'address corrente ed il successivo non siano gli stessi
+        		if(srh->get_next_addr() != srh->cur_addr())
+				{
+
+				printf("UID_Packet_Failed=%i - Route=%lu \n",cmh->uid(),p.route.dump()); 
+				//Effettuo una push del pacchetto (Copiandolo)
+				pacchetti_da_reinviare.push_back(pkt->copy());
+				return;
+
+				}
+		}
+
+	}
 
   if(strcmp(reason, "DROP_IFQ_QFULL") != 0) {
 	  assert(strcmp(reason, "DROP_RTR_MAC_CALLBACK") == 0);
@@ -2825,28 +2891,12 @@ printf("Route Request (return) \n");
 	      tell_id.dump());
       Packet::free(pkt);	// no drop needed
       pkt = 0;
-      printf("no need to send the route error if it's for us (return) \n");
+     // printf("no need to send the route error if it's for us (return) \n");
       return;
     }
 
-  if (srh->num_route_errors() >= MAX_ROUTE_ERRORS)
-    { // no more room in the error packet to nest an additional error.
-      // this pkt's been bouncing around so much, let's just drop and let
-      // the originator retry
-      // Another possibility is to just strip off the outer error, and
-      // launch a Route discovey for the inner error XXX -dam 6/5/98
+  
 
-
-      trace("SDFU  %.5f _%s_ dumping maximally nested error %s  %d -> %d",
-	    Scheduler::instance().clock(), net_id.dump(),
-	    tell_id.dump(),
-	    from_id.dump(),
-	    to_id.dump());
-      Packet::free(pkt);	// no drop needed
-      pkt = 0;
-      printf("MAX_ROUTE_ERRORS (return)\n");
-      return;
-    }
 
   link_down *deadlink = &(srh->down_links()[srh->num_route_errors()]);
   deadlink->addr_type = srh->addrs()[srh->cur_addr()].addr_type;
@@ -2899,22 +2949,9 @@ printf("Route Request (return) \n");
   
 //printf("Ci sono arrivato : %i\n",srh->route_error());
   
-  //CONTROLLO SE E' UN PACCHETTO DI ROUTE REQUEST
-
-  if (srh->route_request())
-    {
-            //printf(" xmitFailed(1) E' un pacchetto di Route request \n");
-    }
- //CONTROLLO SE E' UN PACCHETTO DI ROUTE ERROR
-  if (srh->route_error())
-    {     
-            //printf("xmitFailed(1) E' un pacchetto di Route error contatore= %i \n",contatore);
-	    //contatore++;
-    }
-else {      //printf("xmitFailed(1) Continuo ad essere un pacchetto dati contatore= %i \n",contatore);
-	    //contatore++;
+  
 	
-}
+
 
 
 
