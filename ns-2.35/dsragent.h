@@ -57,7 +57,7 @@
 class DSRAgent;
 
 #include <stdarg.h>
-#include <queue>
+
 #include <object.h>
 #include <agent.h>
 #include <trace.h>
@@ -72,8 +72,7 @@ class DSRAgent;
 #include "requesttable.h"
 #include "flowstruct.h"
 
-#define CHIAMA_RECALL 50  // chiama la funzione recall ogni secondi
-
+#define CHIAMA_RECALL 100 
 #define BUFFER_CHECK 0.03	// seconds between buffer checks
 #define RREQ_JITTER 0.010	// seconds to jitter broadcast route requests
 #define SEND_TIMEOUT 30.0	// # seconds a packet can live in sendbuf
@@ -110,6 +109,7 @@ protected:
   DSRAgent *a_;
 };
 
+//mia
 class RecallMethod : public TimerHandler {
 public:
 	RecallMethod(DSRAgent *a) : TimerHandler() {a_ = a;}
@@ -118,8 +118,6 @@ protected:
   DSRAgent *a_;
 };
 
-
-
 LIST_HEAD(DSRAgent_List, DSRAgent);
 
 class DSRAgent : public Tap, public Agent {
@@ -127,7 +125,7 @@ public:
 
   virtual int command(int argc, const char*const* argv);
   virtual void recv(Packet*, Handler* callback = 0);
-  
+
   void tap(const Packet *p);
   // tap out all data packets received at this host and promiscously snoop
   // them for interesting tidbits
@@ -135,10 +133,15 @@ public:
   void Terminate(void);
 	// called at the end of the simulation to purge all packets
   void sendOutBCastPkt(Packet *p);
-
+  
   DSRAgent();
   ~DSRAgent();
 
+protected:
+
+double iEnergy[100];
+MobileNode* iNode[100];
+int caricoNodi[20];
 
 private:
 
@@ -147,13 +150,7 @@ private:
   int off_ll_;
   int off_ip_;
   int off_sr_;
-  
- 
-  Packet* arrayPacchetti[1000];
- int prova;
-int contatore;
- int random;
- int libero;
+
   // will eventually need to handle multiple infs, but this is okay for
   // now 1/28/98 -dam
   ID net_id, MAC_id;		// our IP addr and MAC addr
@@ -183,7 +180,7 @@ int contatore;
   RouteCache *route_cache;
   SendBufEntry send_buf[SEND_BUF_SIZE];
   SendBufferTimer send_buf_timer;
-  RecallMethod send_recall_timer; 
+  RecallMethod send_recall_timer;
   int route_request_num;	// number for our next route_request
   int num_heldoff_rt_replies;
   RtRepHoldoff rtrep_holdoff[RTREP_HOLDOFF_SIZE]; // not used 1/27/98
@@ -250,8 +247,6 @@ int contatore;
   // take the error packet and proccess our part of it.
   // if needed, send the remainder of the errors to the next person
   // doesn't free p.pkt
-  void myFunction();
-
 
   void sendUnknownFlow(SRPacket &p, bool asDefault, u_int16_t flowid = 0);
 
@@ -305,7 +300,6 @@ friend void RouteReplyHoldoffCallback(Node *node, Time time, EventData *data);
 public:
 	LIST_ENTRY(DSRAgent) link;
 	static DSRAgent_List agthead;
- 	
 };
 
 #endif // _DSRAgent_h

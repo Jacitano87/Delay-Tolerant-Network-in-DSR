@@ -6,12 +6,13 @@ set val(mac) Mac/802_11 ;# MAC type
 set val(ll) LL ;# link layer type
 set val(ant) Antenna/OmniAntenna ;# antenna model
 set val(ifqlen) 50 ;# max packets in ifq
-set val(rxPower) 1.11 ;# (in W)
-set val(txPower) 1.11 ;# (in W)
+set val(rxPower) 0.1 ;# (in W)
+set val(txPower) 0.3 ;# (in W)
+set val(idlePower) 0.005;
 set val(energymodel) EnergyModel ;#
-set val(initialenergy) 150 ;# (in Joule)
-set val(sleeppower) 0.02 ;# energia consumata in stato di sleep
-set val(tp) 0.03 ;# Energia consumata per la transizione dallo stato di sleep a quello di attivita'...
+set val(initialenergy) 100 ;# (in Joule)
+set val(sleepPower) 0.02 ;# energia consumata in stato di sleep
+set val(tp) 0.05 ;# Energia consumata per la transizione dallo stato di sleep a quello di attivita'...
 #set val(ifq) Queue/DropTail/PriQueue ;# interface queue type
 
 # DumbAgent no routing!, AODV, DSDV, DSR
@@ -19,12 +20,12 @@ set val(rp) DSR; #
 if { $val(rp) == "DSR" } {
 set val(ifq) CMUPriQueue
 } else {
-set val(ifq) Queue/DropTail/PriQueue
+set val(ifq) Queue/DropTail/PriQueue 
 }
 
 set val(x) 1000
 set val(y) 1000
-set val(numeroNodi) 5
+set val(numeroNodi) 20
 
 
 set ns [new Simulator]
@@ -60,7 +61,9 @@ $ns node-config -adhocRouting $val(rp) \
 -energyModel $val(energymodel) \
 -initialEnergy $val(initialenergy) \
 -rxPower $val(rxPower) \
--txPower $val(txPower)
+-txPower $val(txPower) \
+-idlePower $val(idlePower) \
+-sleepPower $val(sleepPower)
 
 for {set i 0} {$i<$val(numeroNodi)} {incr i} {
 set node($i) [$ns node]
@@ -69,29 +72,45 @@ $node($i) random-motion 1
 $node($i) start
 }
 
-#sorgente
-set udp(0) [new Agent/UDP]
-$ns attach-agent $node(0) $udp(0)
-#ricevente
-set null(0) [new Agent/Null]
-$ns attach-agent $node(4) $null(0)
 
-set cbr(0) [new Application/Traffic/CBR]
-$cbr(0) set packetSize_ 512
-$cbr(0) set interval_ 0.2
-$cbr(0) set random_ 1
-$cbr(0) set maxpkts_ 10000
-$cbr(0) attach-agent $udp(0)
+set source_node_list {0 2 4 6 8 10 12 14 16 18}
+set dest_node_list {1 3 5 7 9 11 13 15 17 19}
 
-$ns connect $udp(0) $null(0)
-$ns at 1.0 "$cbr(0) start"
+for {set i 0} {$i < [llength $source_node_list]} {incr i} {
+    #Create udp agent
+    set udp($i) [new Agent/UDP]
+    set source [lindex $source_node_list $i]
+    $ns attach-agent $node($source) $udp($i)
+
+    #create cbr
+    set cbr($i) [new Application/Traffic/CBR]
+    $cbr($i) set packetSize_ 512
+    $cbr($i) set interval_ 0.5
+    $cbr($i) set random_ 1
+    $cbr($i) set maxpkts_ 100000
+    $cbr($i) attach-agent $udp($i)
+
+    #Create a Null agent ( traffic sink)
+    set sink($i) [new Agent/LossMonitor]
+    set dest [lindex $dest_node_list $i]
+    $ns attach-agent $node($dest) $sink($i)
+
+    #Connet source and dest Agents
+    $ns connect $udp($i) $sink($i)
+}
+
+for {set i 0} {$i < [llength $source_node_list]} {incr i} {
+    $ns at 1.0 "$cbr($i) start"
+}
+
+
 
 #posizione iniziale a tutti i nodi
 for {set i 0} {$i < $val(numeroNodi)} {incr i} {
 $ns initial_node_pos $node($i) 30
 }
 
-$ns at 1000 "finish"
+$ns at 1001 "finish"
 
 proc finish {} {
 	global ns f nf
@@ -99,7 +118,7 @@ proc finish {} {
 	close $f
 	close $nf
 	# puts "running nam..."
-	exec nam out.nam &
+	#exec nam out.nam &
 	exit 0
 }
 
