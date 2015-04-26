@@ -23,9 +23,9 @@ set val(ifq) CMUPriQueue
 set val(ifq) Queue/DropTail/PriQueue 
 }
 
-set val(x) 1000
-set val(y) 1000
-set val(numeroNodi) 20
+set val(x) 1500
+set val(y) 1500
+set val(numeroNodi) 10
 
 
 set ns [new Simulator]
@@ -73,8 +73,8 @@ $node($i) start
 }
 
 
-set source_node_list {0 2 4 6 8 10 12 14 16 18}
-set dest_node_list {1 3 5 7 9 11 13 15 17 19}
+set source_node_list {0 2 4 6 8}
+set dest_node_list {1 3 5 7 9}
 
 for {set i 0} {$i < [llength $source_node_list]} {incr i} {
     #Create udp agent
@@ -110,7 +110,7 @@ for {set i 0} {$i < $val(numeroNodi)} {incr i} {
 $ns initial_node_pos $node($i) 30
 }
 
-$ns at 1001 "finish"
+$ns at 2001 "finish"
 
 proc finish {} {
 	global ns f nf

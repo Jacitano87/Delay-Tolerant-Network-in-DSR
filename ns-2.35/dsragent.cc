@@ -80,7 +80,7 @@ extern "C" {
 #include "routecache.h"
 #include "requesttable.h"
 #include "dsragent.h"
-
+#include <fstream> 
 #include <iostream>
 #include <deque>
 
@@ -110,6 +110,10 @@ static bool dsr_salvage_allow_propagating = 0;
 #endif
 
 deque<Packet*> pacchetti_da_reinviare ;
+deque<int> perdita_pacchetto_id;
+deque<double> perdita_pacchetto;
+deque<int> ricezione_pacchetto_id;
+deque<double> ricezione_pacchetto;
 int prova=0;
 
 /* couple of flowstate constants... */
@@ -249,10 +253,17 @@ if (pacchetti_da_reinviare.size() > 0)
   	   hdr_cmn *cmh = hdr_cmn::access(pacchetti_da_reinviare.front());
 
   	   SRPacket p(pacchetti_da_reinviare.front(), srh);
-
- cout  << " Size_Temp_Coda= " << pacchetti_da_reinviare.size() <<" UID=" << cmh->uid() <<" C_Add=" <<srh->cur_addr() <<" N_Add=" <<srh->get_next_addr() <<" " << "Time=" << Scheduler::instance().clock()  << endl << flush;
-	if(cmh->uid() !=0 ) //Nb quelli reinviati cancellati dalla coda diventano con cmh->uid() = 0
-         a_->sendOutPacketWithRoute(p, true, 0.3);
+ofstream f("result.txt",ios::app); //se il file non esiste lo crea, altrimenti lo Appende!
+    if(!f) {
+        cout<<"Errore nella creazione del file!";
+        return ;
+    }
+	
+f  << " Size_Temp_Coda= " << pacchetti_da_reinviare.size() <<" UID=" << cmh->uid() <<" C_Add=" <<srh->cur_addr() <<" N_Add=" <<srh->get_next_addr() <<" " << "Time=" << Scheduler::instance().clock() <<"P=" << srh->get_rinviato() << endl << flush;
+f.close();
+   	srh->get_rinviato()=1; // setto la variabile a 1 in modo da capire che è stato rinviato
+	if(cmh->uid() !=0 ) 
+         a_->sendOutPacketWithRoute(p, false, 0.3);
 	  pacchetti_da_reinviare.pop_front();
 		a_->caricoNodi[srh->cur_addr()]++;
 	}
@@ -266,29 +277,55 @@ cout  << "Coda Vuota al Tempo =" << Scheduler::instance().clock() << endl << flu
 
 
 
+ofstream f("energy.txt",ios::app);
+if(!f) {
+        cout<<"Errore nella creazione del file!";
+        return ;
+    }
+f  << "T=" << Scheduler::instance().clock() <<" Energy" <<flush;
 
 
-
-
-cout << "T=" << Scheduler::instance().clock() <<" Energy" <<flush;
 int num_nodes = God::instance()->nodes(); 
 for ( int i = 0 ; i< num_nodes ; i++)
 {
 a_->iNode[i] = (MobileNode *)(Node::get_node_by_address(i));
 a_->iEnergy[i] = a_->iNode[i]->energy_model()->energy();
 
-
-printf(" N%i=%.4f",i,a_->iEnergy[i]);
+f << " N" << i <<"="<<a_->iEnergy[i]  << flush;
+//printf(" N%i=%.4f",i,a_->iEnergy[i]);
 }     
-printf("\n");
+f << endl << flush;
+f.close();
+if(Scheduler::instance().clock() == 2000)
+{
+while (perdita_pacchetto.size() > 0)
+	{
+ofstream fx("tempi_perdita.txt",ios::app); //se il file non esiste lo crea, altrimenti lo Appende!
+    if(!fx) {
+        cout<<"Errore nella creazione del file!";
+        return ;
+    	   }
+fx  << "ID_Pacchetto = " <<perdita_pacchetto_id.front() <<" Tempo_perdita=" << perdita_pacchetto.front() << endl << flush;
+fx.close();
+perdita_pacchetto.pop_front();	
+perdita_pacchetto_id.pop_front();
+	  }
 
-if(Scheduler::instance().clock() == 1000)
+if(Scheduler::instance().clock() == 2000)
 {
-for ( int i = 0 ; i< 20 ; i++)
-{
-printf(" N%i=%i",i,a_->caricoNodi[i]);
+while (ricezione_pacchetto.size() > 0)
+	{
+ofstream fx1("tempi_ricezione.txt",ios::app); //se il file non esiste lo crea, altrimenti lo Appende!
+    if(!fx1) {
+        cout<<"Errore nella creazione del file!";
+        return ;
+    	   }
+fx1  << "ID_Pacchetto = " <<ricezione_pacchetto_id.front() <<" Tempo_ricezione=" << ricezione_pacchetto.front() << endl << flush;
+fx1.close();
+ricezione_pacchetto.pop_front();
+ricezione_pacchetto_id.pop_front();	
+	  }
 }
-printf("\n");
 }
 // Richiama il metodo dopo un totale di secondi decisi 
   resched(CHIAMA_RECALL); 
@@ -358,6 +395,8 @@ DSRAgent::sendBufferCheck()
   int c;
 
   for (c  = 0 ; c <SEND_BUF_SIZE ; c++) {
+
+
 	  if (send_buf[c].p.pkt == NULL)
 		  continue;
 	  if (Scheduler::instance().clock() - send_buf[c].t > send_timeout) {
@@ -677,34 +716,38 @@ DSRAgent::recv(Packet* packet, Handler*)
   hdr_ip *iph =  hdr_ip::access(packet);
   hdr_cmn *cmh =  hdr_cmn::access(packet);
 
-if (pacchetti_da_reinviare.size() > 0)
-{
 
-  int sizePack = pacchetti_da_reinviare.size();
+
+if(srh->get_rinviato() == 1) // Se è ad 1 vuol dire che è stato rinviato perchè si trovava in coda
+{
 	
-for (int i = 0 ; i < sizePack ; i++)
-{
-	   hdr_sr *srhTMP = hdr_sr::access(pacchetti_da_reinviare.at(i));
-  	   hdr_ip *iphTMP = hdr_ip::access(pacchetti_da_reinviare.at(i));
-  	   hdr_cmn *cmhTMP = hdr_cmn::access(pacchetti_da_reinviare.at(i));
-
-  	   SRPacket pTMP(pacchetti_da_reinviare.at(i), srhTMP);
 	 
 	
-if (cmhTMP->uid() == cmh->uid() && srh->dump() == srhTMP->dump() )
-	{
-       
-cout  << "UID_Pack_Recv= " <<cmhTMP->uid() <<" CurAdd=" <<srhTMP->cur_addr() <<" NextAdd=" <<srhTMP->get_next_addr() <<" Type=" <<cmhTMP->ptype() <<" Time=" <<Scheduler::instance().clock() <<" Add=" << srh->addrs()  << endl << flush;
+       ofstream f("result.txt",ios::app); //se il file non esiste lo crea, altrimenti lo Appende!
+    if(!f) {
+        cout<<"Errore nella creazione del file!";
+        return ;
+    	   }
+f  << "UID_Pack_Recv= " <<cmh->uid() <<" CurAdd=" <<srh->cur_addr() <<" NextAdd=" <<srh->get_next_addr() <<" Type=" <<cmh->ptype() <<" Time=" <<Scheduler::instance().clock() <<" Add=" << srh->addrs() <<" P=" << srh->get_rinviato()  << endl << flush;
+f.close();
+srh->get_rinviato() =0; // Setto a zero poichè è arrivato
+		//return;
+
+if (srh->get_rinviato() != 1)
+{
+
+srh->get_stop() = Scheduler::instance().clock();
+ricezione_pacchetto.push_back(Scheduler::instance().clock());
+ricezione_pacchetto_id.push_back(cmh->uid());
 	
-		 cmhTMP->uid() = 0;
-		return;
-		 
-	}
 
-	pTMP.pkt = NULL;
+       	   }
+	 
+}
 
-}
-}
+	
+
+
 
 
 
@@ -806,6 +849,24 @@ DSRAgent::handlePktWithoutSR(SRPacket& p, bool retry)
 {
   assert(HDR_SR (p.pkt)->valid());
 
+hdr_cmn *cmh =  hdr_cmn::access(p.pkt);
+  hdr_sr *srh =  hdr_sr::access(p.pkt);
+
+ofstream f("result.txt",ios::app); //se il file non esiste lo crea, altrimenti lo Appende!
+    if(!f) {
+        cout<<"Errore nella creazione del file!";
+        return ;
+    }
+
+	if(srh->get_rinviato() == 1)
+	   {
+		   
+f  << "UID_HandlePKT= " <<cmh->uid() <<" C_Add=" << srh->cur_addr() <<" N_Add=" <<srh->get_next_addr() <<" Time=" <<Scheduler::instance().clock() <<" Dump=" << srh->dump() <<" P=" << srh->get_rinviato() << endl << flush;
+}
+f.close();
+
+
+
   if (p.dest == net_id)
     { // it doesn't need a source route, 'cause it's for us
       handlePacketReceipt(p);
@@ -848,6 +909,21 @@ DSRAgent::handlePacketReceipt(SRPacket& p)
 {
   hdr_cmn *cmh =  hdr_cmn::access(p.pkt);
   hdr_sr *srh =  hdr_sr::access(p.pkt);
+
+
+ofstream f("result.txt",ios::app); //se il file non esiste lo crea, altrimenti lo Appende!
+    if(!f) {
+        cout<<"Errore nella creazione del file!";
+        return ;
+    }
+
+	if(srh->get_rinviato() == 1)
+	   {
+		   
+f  << "UID_HandleReceipt= " <<cmh->uid() <<" C_Add=" << srh->cur_addr() <<" N_Add=" <<srh->get_next_addr() <<" Time=" <<Scheduler::instance().clock() <<" Dump=" << srh->dump() <<" P=" << srh->get_rinviato() << endl << flush;
+}
+f.close();
+
 
   if (srh->route_reply())
     { // we got a route_reply piggybacked on a route_request
@@ -939,6 +1015,20 @@ DSRAgent::handleFlowForwarding(SRPacket &p, int flowidx) {
   hdr_sr *srh = hdr_sr::access(p.pkt);
   hdr_ip *iph = hdr_ip::access(p.pkt);
   hdr_cmn *cmnh =  hdr_cmn::access(p.pkt);
+
+
+ofstream f("result.txt",ios::app); //se il file non esiste lo crea, altrimenti lo Appende!
+    if(!f) {
+        cout<<"Errore nella creazione del file!";
+        return ;
+    	   }
+if(srh->get_rinviato() == 1)
+{
+f  << "UID_HANDLE_FLOW= " <<cmnh->uid() <<" CurAdd=" <<srh->cur_addr() <<" NextAdd=" <<srh->get_next_addr() <<" Type=" <<cmnh->ptype() <<" Time=" <<Scheduler::instance().clock() <<" Add=" << srh->addrs() <<" P=" << srh->get_rinviato()  << endl << flush;
+}
+f.close();
+
+
   int amt;
 
   assert(flowidx >= 0);
@@ -1057,6 +1147,18 @@ DSRAgent::handleForwarding(SRPacket &p)
   hdr_ip *iph = hdr_ip::access(p.pkt);
   hdr_cmn *ch =  hdr_cmn::access(p.pkt);
   bool flowOnly = !srh->num_addrs();
+
+
+ofstream f("result.txt",ios::app); //se il file non esiste lo crea, altrimenti lo Appende!
+    if(!f) {
+        cout<<"Errore nella creazione del file!";
+        return ;
+    	   }
+if(srh->get_rinviato() == 1)
+{
+f  << "UID_Pack_HandleFORW= " <<ch->uid() <<" CurAdd=" <<srh->cur_addr() <<" NextAdd=" <<srh->get_next_addr() <<" Type=" <<ch->ptype() <<" Time=" <<Scheduler::instance().clock() <<" Add=" << srh->addrs() <<" P=" << srh->get_rinviato()  << endl << flush;
+}
+f.close();
 
   if (srh->flow_header())
     handleFlowForwarding(p);
@@ -1378,7 +1480,14 @@ DSRAgent::sendOutPacketWithRoute(SRPacket& p, bool fresh, Time delay)
   
 if (delay == 0.3)
 {
-cout  << "UID_Pack_SendOutArr= " <<cmnh->uid() <<" CurAdd=" <<srh->cur_addr() <<" NextAdd=" <<srh->get_next_addr() <<" Type=" <<cmnh->ptype() <<" Time=" <<Scheduler::instance().clock() <<" Dump=" << srh->dump() <<" Flow=" << srh->flow_timeout() << endl << flush;
+ofstream f("result.txt",ios::app);
+if(!f) {
+        cout<<"Errore nella creazione del file!";
+        return ;
+    }
+f  << "UID_Pack_SendOutArr= " <<cmnh->uid() <<" CurAdd=" <<srh->cur_addr() <<" NextAdd=" <<srh->get_next_addr() <<" Type=" <<cmnh->ptype() <<" Time=" <<Scheduler::instance().clock() <<" Dump=" << srh->dump() <<" Flow=" << srh->flow_timeout() <<"P=" << srh->get_rinviato() << endl << flush;
+f.close();
+  
 }
 
   assert(srh->valid());
@@ -1576,10 +1685,25 @@ cout  << "UID_Pack_SendOutArr= " <<cmnh->uid() <<" CurAdd=" <<srh->cur_addr() <<
     { // no jitter required 
 if (delay == 0.3)
 {
-cout  << "UID_Pack_SendOutGo= " <<cmnh->uid() <<" CurAdd=" <<srh->cur_addr() <<" NextAdd=" <<srh->get_next_addr() <<" Type=" <<cmnh->ptype() <<" Time=" <<Scheduler::instance().clock() <<" Dump=" << srh->dump() <<" Flow=" << srh->flow_timeout() << endl << flush;
+srh->cur_addr() -= 1;
+
+ofstream f("result.txt",ios::app); //se il file non esiste lo crea, altrimenti lo Appende!
+    if(!f) {
+        cout<<"Errore nella creazione del file!";
+        return ;
+    	   }
+  Scheduler::instance().schedule(ll, p.pkt->copy(), delay);
+f  << "UID_Pack_SendOutGo= " <<cmnh->uid() <<" CurAdd=" <<srh->cur_addr() <<" NextAdd=" <<srh->get_next_addr() <<" Type=" <<cmnh->ptype() <<" Time=" <<Scheduler::instance().clock() <<" Dump=" << srh->dump() <<" Flow=" << srh->flow_timeout() <<"P=" << srh->get_rinviato() << endl << flush;
+f.close();
+srh->cur_addr() += 1;
 }
-      Scheduler::instance().schedule(ll, p.pkt, delay);
-    }
+
+else
+{
+Scheduler::instance().schedule(ll, p.pkt, delay);
+}
+     } 
+    
   p.pkt = NULL; /* packet sent off */
 }
 
@@ -1925,7 +2049,7 @@ DSRAgent::processUnknownFlowError(SRPacket &p, bool asDefault) {
   struct flow_error *fe;
   u_int16_t flowid;
 
-  if (asDefault) {
+  if  (asDefault) {
     assert (srh->flow_default_unknown() && srh->num_default_unknown());
     fe = &srh->unknown_defaults()[srh->num_default_unknown()-1];
   } else {
@@ -2420,9 +2544,20 @@ DSRAgent::undeliverablePkt(Packet *pkt, int mine)
   iph = hdr_ip::access(p.pkt);
   cmh = hdr_cmn::access(p.pkt);
 
+if (srh->get_rinviato() == 1 && cmh->ptype() != PT_DSR )
+{
 
-//cout  << "UID_Pack_Undeliv= " <<cmh->uid() <<" CurAdd=" <<srh->cur_addr() <<" NextAdd=" <<srh->get_next_addr() <<" Type=" <<cmh->ptype() <<" Time=" <<Scheduler::instance().clock() <<" Dump=" << srh->dump() <<" Flow=" << srh->flow_timeout() << endl << flush;
 
+ofstream f("result.txt",ios::app); //se il file non esiste lo crea, altrimenti lo Appende!
+    if(!f) {
+        cout<<"Errore nella creazione del file!";
+        return ;
+    	   }
+  pacchetti_da_reinviare.push_back(pkt->copy());
+f  << "UID_Pack_Undeliverable= " <<cmh->uid() <<" CurAdd=" <<srh->cur_addr() <<" NextAdd=" <<srh->get_next_addr() <<" Type=" <<cmh->ptype() <<" Time=" <<Scheduler::instance().clock() <<" Dump=" << srh->dump() <<" Flow=" << srh->flow_timeout() <<"P=" << srh->get_rinviato() << endl << flush;
+f.close();
+
+}
 
 
 
@@ -2697,15 +2832,20 @@ DSRAgent::xmitFlowFailed(Packet *pkt, const char* reason)
   u_int16_t default_flow;
 
 
+if(cmh->uid() == 80118) {
+ofstream f("result.txt",ios::app);
+if(!f) {
+        cout<<"Errore nella creazione del file!";
+        return ;
+    }
 
+//f  << "UID_XmitFlow= " <<cmh->uid() <<" C_Add=" << srh->cur_addr() <<" N_Add=" <<srh->get_next_addr() <<" Time=" <<Scheduler::instance().clock() <<" Dump=" << srh->dump() << endl << flush;
+f.close();
 
-		 
+	}	 
 		
 	
-       	   cout  << "UID_xmitFailedPre= " <<cmh->uid() <<" C_Add=" <<srh->cur_addr() <<" N_Add=" <<srh->get_next_addr() 
-		       <<" T=" <<cmh->ptype() <<" Time=" <<Scheduler::instance().clock() <<" Dump=" << srh->dump() <<" Add=" 
-                       << srh->addrs()  << endl << flush;
-
+       	   
 //cout  << "UID_xmitFlow= " <<cmh->uid() <<" C_Add=" <<srh->cur_addr() <<" N_Add=" <<srh->get_next_addr() <<" T=" <<cmh->ptype() <<" Time=" <<Scheduler::instance().clock() << " Ptype=" << cmh->ptype() <<endl << flush;
   assert(cmh->size() >= 0);
   assert(!srh->num_addrs());
@@ -2761,10 +2901,26 @@ DSRAgent::xmitFailed(Packet *pkt, const char* reason)
   hdr_sr *srh = hdr_sr::access(pkt);
   hdr_ip *iph = hdr_ip::access(pkt);
   hdr_cmn *cmh = hdr_cmn::access(pkt);
-
-//cout  << "UID_xmitFailedPre= " <<cmh->uid() <<" C_Add=" <<srh->cur_addr() <<" N_Add=" <<srh->get_next_addr() <<" T=" <<cmh->ptype() <<" Time=" <<Scheduler::instance().clock() << " Ptype=" << cmh->ptype() <<" Dump=" << srh->dump() <<" Add=" << srh->addrs() <<endl << flush;
  
-//cout  << "UID_xmitFailed= " <<cmh->uid() <<" C_Add=" <<srh->cur_addr() <<" N_Add=" <<srh->get_next_addr() <<" T=" <<cmh->ptype() <<" Time=" <<Scheduler::instance().clock() << " Ptype=" << cmh->ptype() <<endl << flush;
+
+
+ofstream f1("result.txt",ios::app); //se il file non esiste lo crea, altrimenti lo Appende!
+    if(!f1) {
+        cout<<"Errore nella creazione del file!";
+        return ;
+    }
+
+
+
+	if(cmh->ptype() != PT_DSR)
+	   {
+		   
+		
+f1  << "UID_xmitFailed_PrePush= " <<cmh->uid() <<" C_Add=" << srh->cur_addr() <<" N_Add=" <<srh->get_next_addr() <<" Time=" <<Scheduler::instance().clock() <<" Dump=" << srh->dump() <<" P=" << srh->get_rinviato() << endl << flush;
+	   }
+f1.close();
+
+
   assert(cmh->size() >= 0);
 
   srh->cur_addr() -= 1;		// correct for inc already done on sending
@@ -2834,7 +2990,7 @@ DSRAgent::xmitFailed(Packet *pkt, const char* reason)
 	  flow_table.noticeDeadLink(from_id, to_id);
 
 	  /* give ourselves a chance to save the packet */
-	  undeliverablePkt(pkt->copy(), 1);
+	  //undeliverablePkt(pkt->copy(), 1);
 
 	  /* now kill all the other packets in the output queue that would
 	     use the same next hop.  This is reasonable, since 802.11 has
@@ -2845,7 +3001,7 @@ DSRAgent::xmitFailed(Packet *pkt, const char* reason)
 	   * if one hasn't already been sent? ie if two different routes
 	   * are using this link?
 	   */
-	  {
+	  { 
 	    Packet *r, *nr, *queue1 = 0, *queue2 = 0;
 	    // pkts to be recycled
 	    
@@ -2896,18 +3052,38 @@ DSRAgent::xmitFailed(Packet *pkt, const char* reason)
       pkt = 0;
       return;
     }  
+ofstream f("result.txt",ios::app); //se il file non esiste lo crea, altrimenti lo Appende!
+    if(!f) {
+        cout<<"Errore nella creazione del file!";
+        return ;
+    }
 
 srh->cur_addr() += 1;
 
-	if(srh->get_next_addr() != srh->cur_addr() && cmh->ptype() != PT_DSR && cmh->uid() != 0 )
+	if(cmh->ptype() != PT_DSR && cmh->uid() != 0)
 	   {
-		  
+		   
 		 pacchetti_da_reinviare.push_back(pkt->copy());
-		 cout  << "UID_xmitFailed= " <<cmh->uid() <<" C_Add=" <<srh->cur_addr() <<" N_Add=" <<srh->get_next_addr() 
-		       <<" T=" <<cmh->ptype() <<" Time=" <<Scheduler::instance().clock() <<" Dump=" << srh->dump() <<" Add=" 
-                       << srh->addrs()  << endl << flush;
+f  << "UID_xmitFailed_Push= " <<cmh->uid() <<" C_Add=" << srh->cur_addr() <<" N_Add=" <<srh->get_next_addr() <<" Time=" <<Scheduler::instance().clock() <<" Dump=" << srh->dump() <<" P=" << srh->get_rinviato() << endl << flush;
+f.close();
+	//cout  << "UID_xmitFailed= " <<cmh->uid() <<" C_Add=" << srh->cur_addr() <<" N_Add=" <<srh->get_next_addr() <<" Time=" <<Scheduler::instance().clock() <<" Dump=" << srh->dump() << endl << flush;
   
+if(srh->get_rinviato() != 1)
+{
+
+srh->get_start() = Scheduler::instance().clock();
+perdita_pacchetto.push_back(Scheduler::instance().clock());
+perdita_pacchetto_id.push_back(cmh->uid());
+
+
+}	
        	   }
+
+
+
+
+       	   
+
 
 assert(cmh->size() >= 0);
 srh->cur_addr() -= 1;
