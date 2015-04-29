@@ -72,7 +72,7 @@ class DSRAgent;
 #include "requesttable.h"
 #include "flowstruct.h"
 
-#define CHIAMA_RECALL 100 
+#define CHIAMA_RECALL 50 
 #define BUFFER_CHECK 0.03	// seconds between buffer checks
 #define RREQ_JITTER 0.010	// seconds to jitter broadcast route requests
 #define SEND_TIMEOUT 30.0	// # seconds a packet can live in sendbuf
